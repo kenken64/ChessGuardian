@@ -4,3 +4,4 @@ python-chess
 openai
 python-dotenv
 gunicorn
+stockfish

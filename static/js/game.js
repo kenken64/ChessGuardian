@@ -15,18 +15,18 @@ $(document).ready(function () {
 
     var board = Chessboard('board', config);
 
-    // --- Drag Start: Only allow current side's pieces ---
+    // --- Drag Start: Only allow human's pieces (White by default) ---
     function onDragStart(source, piece, position, orientation) {
         if (game.game_over()) return false;
 
-        // Only pick up pieces for the side to move
-        if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
-            (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
-            return false;
-        }
+        // Don't allow moves when it's AI's turn
+        if (game.turn() === 'b') return false;
+
+        // Only pick up white pieces
+        if (piece.search(/^b/) !== -1) return false;
     }
 
-    // --- Drop: Validate and make move ---
+    // --- Drop: Validate and make move, then let Stockfish reply ---
     function onDrop(source, target) {
         // Auto-promote to queen
         var move = game.move({
@@ -40,6 +40,53 @@ $(document).ready(function () {
         updateStatus();
         updateMoveHistory();
         highlightLastMove(source, target);
+
+        // If the game isn't over, ask Stockfish for the AI reply
+        if (!game.game_over()) {
+            requestStockfishMove();
+        }
+    }
+
+    // --- Request Stockfish to make the AI's move ---
+    function requestStockfishMove() {
+        $('#statusBar').text($('#statusBar').text() + ' — AI thinking...');
+
+        $.ajax({
+            url: '/api/move',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ fen: game.fen() }),
+            success: function (data) {
+                if (data.error) {
+                    $('#statusBar').text('AI error: ' + data.error);
+                    return;
+                }
+
+                // Make the Stockfish move on the board
+                var aiMove = game.move(data.san);
+                if (!aiMove) {
+                    // Fallback: try UCI format
+                    aiMove = game.move(data.move, { sloppy: true });
+                }
+
+                if (aiMove) {
+                    board.position(game.fen());
+                    updateStatus();
+                    updateMoveHistory();
+                    highlightLastMove(aiMove.from, aiMove.to);
+
+                    // Now request OpenAI analysis of the position
+                    requestAnalysis(data.san);
+                }
+            },
+            error: function (xhr) {
+                var msg = 'AI move failed.';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    msg = xhr.responseJSON.error;
+                }
+                $('#statusBar').text(msg);
+            }
+        });
     }
 
     // --- Snap End: Sync board with game state ---

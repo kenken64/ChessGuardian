@@ -8,6 +8,7 @@ from flask import Flask, render_template, request, jsonify, session, Response
 from dotenv import load_dotenv
 from openai import OpenAI
 import chess
+from stockfish import Stockfish as StockfishEngine
 from models import db, Game
 
 load_dotenv()
@@ -45,6 +46,17 @@ else:
 
 db.init_app(app)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# --- Stockfish setup ---
+STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/opt/homebrew/bin/stockfish")
+STOCKFISH_SKILL = int(os.getenv("STOCKFISH_SKILL", "10"))  # 0-20, default 10 (~1500 Elo)
+STOCKFISH_DEPTH = int(os.getenv("STOCKFISH_DEPTH", "12"))
+
+def get_stockfish():
+    """Create a fresh Stockfish instance."""
+    sf = StockfishEngine(path=STOCKFISH_PATH, depth=STOCKFISH_DEPTH)
+    sf.update_engine_parameters({"Skill Level": STOCKFISH_SKILL})
+    return sf
 
 with app.app_context():
     db.create_all()
@@ -89,6 +101,48 @@ def parse_win_chance(text):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/move", methods=["POST"])
+def get_ai_move():
+    """Use Stockfish to pick the best move for the current position."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    fen = data.get("fen")
+    if not fen:
+        return jsonify({"error": "FEN is required"}), 400
+
+    try:
+        board = chess.Board(fen)
+    except ValueError:
+        return jsonify({"error": "Invalid FEN position"}), 400
+
+    if board.is_game_over():
+        return jsonify({"error": "Game is already over"}), 400
+
+    try:
+        sf = get_stockfish()
+        sf.set_fen_position(fen)
+        best_move_uci = sf.get_best_move()
+
+        if not best_move_uci:
+            return jsonify({"error": "Stockfish could not find a move"}), 500
+
+        # Convert UCI to SAN for display
+        move = chess.Move.from_uci(best_move_uci)
+        san = board.san(move)
+
+        app.logger.info("Stockfish move: %s (%s) for FEN: %s", san, best_move_uci, fen)
+
+        return jsonify({
+            "move": best_move_uci,
+            "san": san,
+        })
+    except Exception as e:
+        app.logger.error("Stockfish error: %s", str(e), exc_info=True)
+        return jsonify({"error": f"Stockfish error: {str(e)}"}), 500
 
 
 @app.route("/api/analyze", methods=["POST"])
