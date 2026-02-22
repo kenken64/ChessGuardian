@@ -74,28 +74,20 @@ def ensure_session_id():
     if "session_id" not in session:
         session["session_id"] = str(uuid.uuid4())
 
-SYSTEM_PROMPT = """You are an expert chess analyst. When given a chess position in FEN notation and the move history, provide:
+SYSTEM_PROMPT = """You are an expert chess analyst. When given a chess position in FEN notation and the move history, respond with ONLY a valid JSON object (no markdown, no extra text) with these exact keys:
 
-1. **Best Move**: The best move for the side whose turn it is (specified in the user message). Always include the piece name, the origin square, and the destination square. Format: "Piece from [square] to [square]" followed by the standard notation in parentheses. Examples: "Knight from g1 to f3 (Nf3)", "Pawn from e2 to e4 (e4)", "King castles kingside (O-O)", "Pawn from d5 captures on e6 (dxe6)". Always recommend a move for the correct side.
-2. **Explanation**: A brief, clear explanation of why this move is best (2-3 sentences max).
-3. **Position Evaluation**: A short assessment of the position (e.g., "White is slightly better", "Equal position", "Black has a winning advantage").
-4. **Win Chance: [0-100]** — A single integer from 0 to 100 representing White's winning probability. 50 means equal, 100 means White is winning completely, 0 means Black is winning completely.
+{
+  "bestMove": "Piece from [square] to [square] (notation)",
+  "explanation": "2-3 sentence explanation of why this move is best",
+  "evaluation": "Short position assessment, e.g. White is slightly better",
+  "winChance": 55
+}
 
-Keep your response concise and structured exactly as above. Do not use any other format."""
-
-
-def parse_win_chance(text):
-    """Extract Win Chance value from AI response text and return (cleaned_text, win_chance)."""
-    match = re.search(r'\*?\*?Win\s+Chance[:\s]*\[?(\d{1,3})\]?\*?\*?', text, re.IGNORECASE)
-    win_chance = 50
-    if match:
-        val = int(match.group(1))
-        if 0 <= val <= 100:
-            win_chance = val
-        # Remove the Win Chance line from displayed text
-        text = re.sub(r'\n*\d*\.?\s*\*?\*?Win\s+Chance[:\s]*\[?\d{1,3}\]?\*?\*?[^\n]*', '', text, flags=re.IGNORECASE)
-        text = text.rstrip()
-    return text, win_chance
+Rules:
+- bestMove: Include piece name, origin square, destination square, and standard notation. Examples: "Knight from g1 to f3 (Nf3)", "Pawn from e2 to e4 (e4)", "King castles kingside (O-O)"
+- winChance: Integer 0-100 representing White's winning probability. 50 = equal, 100 = White winning, 0 = Black winning.
+- Always recommend a move from the legal moves list provided.
+- Return ONLY the JSON object, nothing else."""
 
 
 @app.route("/")
@@ -215,13 +207,16 @@ def analyze():
 
     # Call OpenAI
     try:
-        prompt = f"{SYSTEM_PROMPT}\n\n{user_message}\n\nAnalysis:"
-        response = client.completions.create(
-            model="gpt-3.5-turbo-instruct",
-            prompt=prompt,
-            max_tokens=1000,
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=500,
+            response_format={"type": "json_object"},
         )
-        analysis = response.choices[0].text.strip()
+        raw = response.choices[0].message.content.strip()
 
         app.logger.info("=== OpenAI Response ===")
         app.logger.info("Model: %s", response.model)
@@ -229,20 +224,34 @@ def analyze():
                         response.usage.prompt_tokens,
                         response.usage.completion_tokens,
                         response.usage.total_tokens)
-        app.logger.info("Raw response:\n%s", analysis)
+        app.logger.info("Raw response:\n%s", raw)
 
-        if not analysis:
-            analysis = "Analysis completed but no output was returned. Please try again."
-            app.logger.warning("OpenAI returned empty content")
+        if not raw:
+            return jsonify({"error": "AI returned empty response"}), 500
+
+        result = json.loads(raw)
+        best_move = result.get("bestMove", "")
+        explanation = result.get("explanation", "")
+        evaluation = result.get("evaluation", "")
+        win_chance = result.get("winChance", 50)
+        win_chance = max(0, min(100, int(win_chance)))
+
+        analysis = f"**Best Move:** {best_move}\n\n**Explanation:** {explanation}\n\n**Evaluation:** {evaluation}"
+
+    except json.JSONDecodeError as e:
+        app.logger.error("JSON parse error: %s\nRaw: %s", str(e), raw, exc_info=True)
+        return jsonify({"error": "AI returned invalid JSON"}), 500
     except Exception as e:
         app.logger.error("OpenAI API error: %s", str(e), exc_info=True)
         return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
 
-    analysis, win_chance = parse_win_chance(analysis)
-    app.logger.info("Parsed win chance: %d, cleaned analysis:\n%s", win_chance, analysis)
+    app.logger.info("Parsed — bestMove: %s, winChance: %d", best_move, win_chance)
 
     return jsonify({
         "analysis": analysis,
+        "bestMove": best_move,
+        "explanation": explanation,
+        "evaluation": evaluation,
         "game_over": False,
         "status": "ok",
         "winChance": win_chance
