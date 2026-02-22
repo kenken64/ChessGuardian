@@ -48,7 +48,7 @@ db.init_app(app)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # --- Stockfish setup ---
-STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/opt/homebrew/bin/stockfish")
+STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/usr/games/stockfish" if os.path.exists("/usr/games/stockfish") else "/opt/homebrew/bin/stockfish")
 STOCKFISH_SKILL = int(os.getenv("STOCKFISH_SKILL", "10"))  # 0-20, default 10 (~1500 Elo)
 STOCKFISH_DEPTH = int(os.getenv("STOCKFISH_DEPTH", "12"))
 
