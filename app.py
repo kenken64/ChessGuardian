@@ -162,7 +162,7 @@ def analyze():
     # Call OpenAI
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo-instruct",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "developer", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message}
