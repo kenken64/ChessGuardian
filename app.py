@@ -145,7 +145,10 @@ def analyze():
 
     # Build the prompt
     side_to_move = "White" if board.turn == chess.WHITE else "Black"
+    legal_moves = " ".join(board.san(m) for m in board.legal_moves)
     user_message = f"Position (FEN): {fen}\nIt is {side_to_move}'s turn to move. Suggest the best move for {side_to_move}."
+    user_message += f"\nLegal moves: {legal_moves}"
+    user_message += "\nIMPORTANT: You MUST recommend one of the legal moves listed above. Do not suggest any move that is not in this list."
     if move_history:
         user_message += f"\nMove history: {move_history}"
     if last_move:
@@ -159,12 +162,12 @@ def analyze():
     # Call OpenAI
     try:
         response = client.chat.completions.create(
-            model="gpt-5-2025-08-07",
+            model="gpt-4.1-2025-04-14",
             messages=[
                 {"role": "developer", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message}
             ],
-            max_completion_tokens=16000
+            max_tokens=1000,
         )
         analysis = response.choices[0].message.content
 
