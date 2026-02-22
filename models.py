@@ -4,6 +4,27 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+class LiveGame(db.Model):
+    id = db.Column(db.String(8), primary_key=True)
+    fen = db.Column(db.String(100), nullable=False, default='rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')
+    history = db.Column(db.Text, nullable=False, default='[]')
+    status = db.Column(db.String(20), nullable=False, default='active')
+    result = db.Column(db.String(10), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self):
+        history = json.loads(self.history)
+        return {
+            "id": self.id,
+            "fen": self.fen,
+            "history": history,
+            "status": self.status,
+            "result": self.result,
+            "gameOver": self.status != 'active',
+        }
+
+
 class Game(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     session_id = db.Column(db.String(36), nullable=False, index=True)

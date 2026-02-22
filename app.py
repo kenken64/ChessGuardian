@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import chess
 from stockfish import Stockfish as StockfishEngine
-from models import db, Game
+import secrets
+from models import db, Game, LiveGame
 
 load_dotenv()
 
@@ -65,6 +66,10 @@ with app.app_context():
         try:
             conn.execute(db.text("ALTER TABLE game ADD COLUMN name VARCHAR(100) DEFAULT ''"))
             conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(db.text("SELECT 1 FROM live_game LIMIT 1"))
         except Exception:
             pass
 
@@ -369,6 +374,184 @@ def import_game():
     db.session.commit()
 
     return jsonify(game.to_dict()), 201
+
+
+# --- Live Game API ---
+
+def _check_game_over(board):
+    """Check board state and return (status, result) or (None, None) if active."""
+    if board.is_checkmate():
+        winner = "0-1" if board.turn == chess.WHITE else "1-0"
+        return "checkmate", winner
+    if board.is_stalemate():
+        return "draw", "1/2-1/2"
+    if board.is_insufficient_material():
+        return "draw", "1/2-1/2"
+    if board.can_claim_fifty_moves() or board.can_claim_threefold_repetition():
+        return "draw", "1/2-1/2"
+    return None, None
+
+
+def _stockfish_move(board):
+    """Get Stockfish's move and return (uci, san)."""
+    sf = get_stockfish()
+    sf.set_fen_position(board.fen())
+    uci = sf.get_best_move()
+    if not uci:
+        return None, None
+    move = chess.Move.from_uci(uci)
+    san = board.san(move)
+    return uci, san
+
+
+def _analyze_position(board, move_history):
+    """Call OpenAI analysis and return dict with bestMove, explanation, evaluation, winChance."""
+    side_to_move = "White" if board.turn == chess.WHITE else "Black"
+    legal_moves = " ".join(board.san(m) for m in board.legal_moves)
+    user_message = f"Position (FEN): {board.fen()}\nIt is {side_to_move}'s turn to move. Suggest the best move for {side_to_move}."
+    user_message += f"\nLegal moves: {legal_moves}"
+    user_message += "\nIMPORTANT: You MUST recommend one of the legal moves listed above."
+    if move_history:
+        user_message += f"\nMove history: {' '.join(move_history)}"
+    try:
+        response = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message}
+            ],
+            max_tokens=500,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content.strip()
+        result = json.loads(raw)
+        return {
+            "bestMove": result.get("bestMove", ""),
+            "explanation": result.get("explanation", ""),
+            "evaluation": result.get("evaluation", ""),
+            "winChance": max(0, min(100, int(result.get("winChance", 50)))),
+        }
+    except Exception as e:
+        app.logger.error("Live game analysis error: %s", str(e), exc_info=True)
+        return {"bestMove": "", "explanation": "Analysis unavailable", "evaluation": "", "winChance": 50}
+
+
+@app.route("/api/live/start", methods=["POST"])
+def live_start():
+    game_id = secrets.token_urlsafe(6)[:8]
+    board = chess.Board()
+
+    # Stockfish plays White's first move
+    uci, san = _stockfish_move(board)
+    if not uci:
+        return jsonify({"error": "Stockfish failed"}), 500
+
+    board.push(chess.Move.from_uci(uci))
+    history = [san]
+
+    game = LiveGame(id=game_id, fen=board.fen(), history=json.dumps(history))
+    db.session.add(game)
+    db.session.commit()
+
+    app.logger.info("Live game %s started. Stockfish opened with %s", game_id, san)
+
+    return jsonify({"id": game_id, "fen": board.fen(), "lastMove": san, "history": history}), 201
+
+
+@app.route("/api/live/<game_id>/move", methods=["POST"])
+def live_move(game_id):
+    game = LiveGame.query.get(game_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+    if game.status != "active":
+        return jsonify({"error": "Game is over", **game.to_dict()}), 400
+
+    data = request.get_json()
+    if not data or not data.get("move"):
+        return jsonify({"error": "move is required"}), 400
+
+    move_str = data["move"].strip()
+    board = chess.Board(game.fen)
+    history = json.loads(game.history)
+
+    # Try SAN first, then UCI
+    human_move = None
+    try:
+        human_move = board.parse_san(move_str)
+    except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
+        try:
+            human_move = chess.Move.from_uci(move_str)
+            if human_move not in board.legal_moves:
+                human_move = None
+        except (ValueError, chess.InvalidMoveError):
+            human_move = None
+
+    if not human_move or human_move not in board.legal_moves:
+        legal = [board.san(m) for m in board.legal_moves]
+        return jsonify({"error": f"Illegal move: {move_str}", "legalMoves": legal}), 400
+
+    human_san = board.san(human_move)
+    board.push(human_move)
+    history.append(human_san)
+
+    # Check game over after human move
+    status, result = _check_game_over(board)
+    if status:
+        game.fen = board.fen()
+        game.history = json.dumps(history)
+        game.status = status
+        game.result = result
+        db.session.commit()
+        return jsonify({
+            "fen": board.fen(), "humanMove": human_san, "stockfishMove": None,
+            "analysis": {"bestMove": "", "explanation": f"Game over: {status}", "evaluation": result, "winChance": 50},
+            "history": history, "gameOver": True, "status": status,
+        })
+
+    # Stockfish replies as White
+    uci, sf_san = _stockfish_move(board)
+    if not uci:
+        return jsonify({"error": "Stockfish failed"}), 500
+
+    board.push(chess.Move.from_uci(uci))
+    history.append(sf_san)
+
+    # Check game over after Stockfish move
+    status, result = _check_game_over(board)
+    game_over = status is not None
+    if game_over:
+        game.status = status
+        game.result = result
+
+    game.fen = board.fen()
+    game.history = json.dumps(history)
+    db.session.commit()
+
+    # Analyze position (for Black's next move)
+    analysis = {"bestMove": "", "explanation": "", "evaluation": "", "winChance": 50}
+    if not game_over:
+        analysis = _analyze_position(board, history)
+
+    app.logger.info("Live game %s: ...%s %s | game_over=%s", game_id, human_san, sf_san, game_over)
+
+    return jsonify({
+        "fen": board.fen(), "humanMove": human_san, "stockfishMove": sf_san,
+        "analysis": analysis, "history": history,
+        "gameOver": game_over, "status": game.status,
+    })
+
+
+@app.route("/api/live/<game_id>", methods=["GET"])
+def live_state(game_id):
+    game = LiveGame.query.get(game_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+    return jsonify(game.to_dict())
+
+
+@app.route("/live/<game_id>")
+def live_viewer(game_id):
+    return render_template("live.html", game_id=game_id)
 
 
 if __name__ == "__main__":
