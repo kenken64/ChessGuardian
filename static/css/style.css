@@ -250,6 +250,39 @@ header h1 {
     border-bottom: 1px solid #3a3733;
 }
 
+.saved-games-header {
+    display: flex;
+    align-items: center;
+    background-color: #1e1c1a;
+    border-bottom: 1px solid #3a3733;
+}
+
+.saved-games-header h2 {
+    flex: 1;
+    border-bottom: none;
+}
+
+.import-btn {
+    padding: 5px 14px;
+    margin-right: 10px;
+    background-color: #779952;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.import-btn:hover {
+    background-color: #6b8d4a;
+}
+
+.import-btn:active {
+    background-color: #5f7d42;
+}
+
 .analysis-header {
     display: flex;
     align-items: center;
@@ -469,6 +502,24 @@ header h1 {
     background-color: #6b8d4a;
 }
 
+.saved-game-download {
+    background: none;
+    border: none;
+    color: #779952;
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 4px 6px;
+    border-radius: 3px;
+    line-height: 1;
+    transition: color 0.15s, background-color 0.15s;
+    flex-shrink: 0;
+}
+
+.saved-game-download:hover {
+    color: #6b8d4a;
+    background-color: rgba(119, 153, 82, 0.1);
+}
+
 .saved-game-delete {
     background: none;
     border: none;
@@ -528,6 +579,49 @@ header h1 {
 .saved-games-list::-webkit-scrollbar-thumb {
     background: #555;
     border-radius: 3px;
+}
+
+/* ===== Win Chance Gauge ===== */
+.win-chance-gauge {
+    background-color: #272421;
+    border-radius: 4px;
+    padding: 10px 14px;
+}
+
+.gauge-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #a0a0a0;
+    margin-bottom: 4px;
+}
+
+.gauge-bar {
+    display: flex;
+    height: 22px;
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid #3a3733;
+}
+
+.gauge-black {
+    background-color: #333;
+    transition: width 0.6s ease;
+}
+
+.gauge-white {
+    background-color: #ebecd0;
+    transition: width 0.6s ease;
+}
+
+.gauge-percentages {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #a0a0a0;
+    margin-top: 4px;
 }
 
 /* ===== Responsive: Tablet (<=768px) ===== */
@@ -616,6 +710,19 @@ header h1 {
     .status-bar {
         padding: 8px 10px;
         font-size: 0.85rem;
+    }
+
+    .win-chance-gauge {
+        padding: 8px 10px;
+    }
+
+    .gauge-bar {
+        height: 18px;
+    }
+
+    .gauge-labels,
+    .gauge-percentages {
+        font-size: 0.72rem;
     }
 
     .analysis-content {

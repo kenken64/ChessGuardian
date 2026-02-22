@@ -51,6 +51,21 @@
     <div class="side-panel">
         <div class="status-bar" id="statusBar">White to move</div>
 
+        <div class="win-chance-gauge">
+            <div class="gauge-labels">
+                <span>Black</span>
+                <span>White</span>
+            </div>
+            <div class="gauge-bar">
+                <div class="gauge-black" id="gaugeBlack" style="width:50%"></div>
+                <div class="gauge-white" id="gaugeWhite" style="width:50%"></div>
+            </div>
+            <div class="gauge-percentages">
+                <span id="blackPercent">50%</span>
+                <span id="whitePercent">50%</span>
+            </div>
+        </div>
+
         <div class="analysis-panel">
             <div class="analysis-header">
                 <h2>AI Analysis</h2>
@@ -75,7 +90,11 @@
         </div>
 
         <div class="saved-games-panel">
-            <h2>Saved Games</h2>
+            <div class="saved-games-header">
+                <h2>Saved Games</h2>
+                <button id="importGameBtn" class="import-btn">Import</button>
+            </div>
+            <input type="file" id="importFileInput" accept=".json" style="display:none;">
             <div id="savedGames" class="saved-games-list">
                 <p class="placeholder">No saved games</p>
             </div>

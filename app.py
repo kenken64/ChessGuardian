@@ -1,7 +1,8 @@
 import os
 import json
+import re
 import uuid
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, Response
 from dotenv import load_dotenv
 from openai import OpenAI
 import chess
@@ -48,8 +49,23 @@ SYSTEM_PROMPT = """You are an expert chess analyst. When given a chess position 
 1. **Best Move**: The best move for the side whose turn it is (specified in the user message). Always include the piece name, the origin square, and the destination square. Format: "Piece from [square] to [square]" followed by the standard notation in parentheses. Examples: "Knight from g1 to f3 (Nf3)", "Pawn from e2 to e4 (e4)", "King castles kingside (O-O)", "Pawn from d5 captures on e6 (dxe6)". Always recommend a move for the correct side.
 2. **Explanation**: A brief, clear explanation of why this move is best (2-3 sentences max).
 3. **Position Evaluation**: A short assessment of the position (e.g., "White is slightly better", "Equal position", "Black has a winning advantage").
+4. **Win Chance: [0-100]** — A single integer from 0 to 100 representing White's winning probability. 50 means equal, 100 means White is winning completely, 0 means Black is winning completely.
 
 Keep your response concise and structured exactly as above. Do not use any other format."""
+
+
+def parse_win_chance(text):
+    """Extract Win Chance value from AI response text and return (cleaned_text, win_chance)."""
+    match = re.search(r'\*?\*?Win\s+Chance[:\s]*\[?(\d{1,3})\]?\*?\*?', text, re.IGNORECASE)
+    win_chance = 50
+    if match:
+        val = int(match.group(1))
+        if 0 <= val <= 100:
+            win_chance = val
+        # Remove the Win Chance line from displayed text
+        text = re.sub(r'\n*\d*\.?\s*\*?\*?Win\s+Chance[:\s]*\[?\d{1,3}\]?\*?\*?[^\n]*', '', text, flags=re.IGNORECASE)
+        text = text.rstrip()
+    return text, win_chance
 
 
 @app.route("/")
@@ -81,27 +97,32 @@ def analyze():
         result = board.result()
         if board.is_checkmate():
             winner = "Black" if board.turn == chess.WHITE else "White"
+            win_chance = 100 if winner == "White" else 0
             return jsonify({
                 "analysis": f"**Checkmate!** {winner} wins.",
                 "game_over": True,
-                "status": f"Checkmate - {winner} wins ({result})"
+                "status": f"Checkmate - {winner} wins ({result})",
+                "winChance": win_chance
             })
         if board.is_stalemate():
             return jsonify({
                 "analysis": "**Stalemate!** The game is a draw.",
                 "game_over": True,
-                "status": f"Stalemate - Draw ({result})"
+                "status": f"Stalemate - Draw ({result})",
+                "winChance": 50
             })
         if board.is_insufficient_material():
             return jsonify({
                 "analysis": "**Draw by insufficient material.**",
                 "game_over": True,
-                "status": f"Insufficient material - Draw ({result})"
+                "status": f"Insufficient material - Draw ({result})",
+                "winChance": 50
             })
         return jsonify({
             "analysis": f"**Game over.** Result: {result}",
             "game_over": True,
-            "status": f"Game over ({result})"
+            "status": f"Game over ({result})",
+            "winChance": 50
         })
 
     # Build the prompt
@@ -120,7 +141,7 @@ def analyze():
                 {"role": "developer", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message}
             ],
-            max_completion_tokens=4000
+            max_completion_tokens=16000
         )
         analysis = response.choices[0].message.content
         if not analysis:
@@ -128,10 +149,13 @@ def analyze():
     except Exception as e:
         return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
 
+    analysis, win_chance = parse_win_chance(analysis)
+
     return jsonify({
         "analysis": analysis,
         "game_over": False,
-        "status": "ok"
+        "status": "ok",
+        "winChance": win_chance
     })
 
 
@@ -195,6 +219,57 @@ def delete_game(game_id):
     db.session.delete(game)
     db.session.commit()
     return jsonify({"ok": True})
+
+
+@app.route("/api/games/<int:game_id>/export", methods=["GET"])
+def export_game(game_id):
+    game = Game.query.filter_by(id=game_id, session_id=session["session_id"]).first()
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    data = game.to_dict()
+    del data["id"]
+
+    filename = (game.name or "game") + ".json"
+    return Response(
+        json.dumps(data, indent=2),
+        mimetype="application/json",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""},
+    )
+
+
+@app.route("/api/games/import", methods=["POST"])
+def import_game():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    f = request.files["file"]
+    try:
+        data = json.loads(f.read())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return jsonify({"error": "Invalid JSON file"}), 400
+
+    # Validate required fields
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Missing game name"}), 400
+
+    history = data.get("history")
+    if not isinstance(history, list) or len(history) == 0:
+        return jsonify({"error": "Missing or empty history"}), 400
+
+    game = Game(
+        session_id=session["session_id"],
+        name=name,
+        date=data.get("date", ""),
+        moves=data.get("moves", ""),
+        history=json.dumps(history),
+        move_count=data.get("moveCount", len(history)),
+    )
+    db.session.add(game)
+    db.session.commit()
+
+    return jsonify(game.to_dict()), 201
 
 
 if __name__ == "__main__":

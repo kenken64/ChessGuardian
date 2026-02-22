@@ -128,6 +128,16 @@ $(document).ready(function () {
         return result.trim();
     }
 
+    // --- Update Win Chance Gauge ---
+    function updateWinChance(whitePercent) {
+        var w = Math.max(0, Math.min(100, whitePercent));
+        var b = 100 - w;
+        $('#gaugeWhite').css('width', w + '%');
+        $('#gaugeBlack').css('width', b + '%');
+        $('#whitePercent').text(w + '%');
+        $('#blackPercent').text(b + '%');
+    }
+
     // --- Request AI Analysis ---
     function requestAnalysis(lastMove) {
         $('#analysisContent').hide();
@@ -152,6 +162,9 @@ $(document).ready(function () {
                         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                         .replace(/\n/g, '<br>');
                     $('#analysisContent').html(html);
+                    if (data.winChance !== undefined) {
+                        updateWinChance(data.winChance);
+                    }
                 }
                 $('#analysisContent').show();
             },
@@ -224,6 +237,7 @@ $(document).ready(function () {
             html += '      <div class="saved-game-preview">' + escapeHtml(preview) + '</div>';
             html += '    </div>';
             html += '    <button class="saved-game-load" title="Load game">Load</button>';
+            html += '    <button class="saved-game-download" title="Download game">&#8681;</button>';
             html += '    <button class="saved-game-delete" title="Delete game">&times;</button>';
             html += '  </div>';
             html += '  <div class="saved-game-moves">' + formatMovesHtml(g.history) + '</div>';
@@ -321,15 +335,55 @@ $(document).ready(function () {
         board.position(game.fen());
         updateStatus();
         updateMoveHistory();
+        updateWinChance(50);
         boardEl.find('.square-55d63').removeClass('highlight-move');
         $('#analysisContent').html('<p class="placeholder">Game loaded — click Analyze to review</p>');
         $('#analysisSpinner').hide();
         $('#analysisContent').show();
     }
 
+    // --- Import game from JSON file ---
+    function importGame() {
+        $('#importFileInput').trigger('click');
+    }
+
+    $('#importFileInput').on('change', function () {
+        var file = this.files[0];
+        if (!file) return;
+
+        var formData = new FormData();
+        formData.append('file', file);
+
+        $.ajax({
+            url: '/api/games/import',
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function () {
+                loadSavedGames();
+            },
+            error: function (xhr) {
+                var msg = 'Import failed.';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    msg = xhr.responseJSON.error;
+                }
+                alert(msg);
+            }
+        });
+
+        // Reset so the same file can be re-imported
+        $(this).val('');
+    });
+
+    // --- Button: Import Game ---
+    $('#importGameBtn').on('click', function () {
+        importGame();
+    });
+
     // --- Toggle expand/collapse saved game ---
     $(document).on('click', '.saved-game-header', function (e) {
-        if ($(e.target).closest('.saved-game-delete, .saved-game-load').length) return;
+        if ($(e.target).closest('.saved-game-delete, .saved-game-load, .saved-game-download').length) return;
         $(this).closest('.saved-game-entry').toggleClass('expanded');
     });
 
@@ -337,6 +391,12 @@ $(document).ready(function () {
     $(document).on('click', '.saved-game-load', function () {
         var id = $(this).closest('.saved-game-entry').data('id');
         loadGame(id);
+    });
+
+    // --- Download button handler ---
+    $(document).on('click', '.saved-game-download', function () {
+        var id = $(this).closest('.saved-game-entry').data('id');
+        window.location = '/api/games/' + id + '/export';
     });
 
     // --- Delete button handler ---
@@ -369,6 +429,7 @@ $(document).ready(function () {
         board.orientation('white');
         updatePlayerLabels();
         updateStatus();
+        updateWinChance(50);
         $('#moveHistory').html('<p class="placeholder">No moves yet</p>');
         $('#openingName').text('');
         $('#analysisContent').html('<p class="placeholder">Play a move to see AI analysis</p>');
