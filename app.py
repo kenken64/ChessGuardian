@@ -541,6 +541,29 @@ def live_move(game_id):
     })
 
 
+@app.route("/api/live/<game_id>/resign", methods=["POST"])
+def resign_game(game_id):
+    game = LiveGame.query.get(game_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+    if game.status != 'active':
+        return jsonify({"error": "Game is already over"}), 400
+
+    # Black (human) resigns, White wins
+    game.status = 'resigned'
+    game.result = '1-0'
+    db.session.commit()
+
+    app.logger.info("Game %s: Black resigned. Result: 1-0", game_id)
+    return jsonify({
+        "id": game.id,
+        "status": "resigned",
+        "result": "1-0",
+        "gameOver": True,
+        "message": "Black resigned. White wins!"
+    })
+
+
 @app.route("/api/live/<game_id>", methods=["GET"])
 def live_state(game_id):
     game = LiveGame.query.get(game_id)

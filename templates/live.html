@@ -80,8 +80,19 @@ function poll() {
 
             const bar = document.getElementById('statusBar');
             if (data.gameOver) {
-                bar.textContent = `Game Over — ${data.status}${data.result ? ' (' + data.result + ')' : ''}`;
+                let msg = 'Game Over';
+                if (data.status === 'resigned') {
+                    msg = data.result === '1-0' ? '🏳️ Black resigned — White wins!' : '🏳️ White resigned — Black wins!';
+                } else if (data.status === 'checkmate') {
+                    msg = data.result === '1-0' ? '♔ Checkmate — White wins!' : '♚ Checkmate — Black wins!';
+                } else if (data.status === 'draw') {
+                    msg = '🤝 Draw';
+                } else {
+                    msg = `Game Over — ${data.status}${data.result ? ' (' + data.result + ')' : ''}`;
+                }
+                bar.textContent = msg;
                 bar.className = 'live-status over';
+                clearInterval(pollInterval);
             } else {
                 // If history length is odd, it's Black's turn
                 const blackTurn = data.history.length % 2 === 1;
@@ -95,7 +106,7 @@ function poll() {
 }
 
 poll();
-setInterval(poll, 3000);
+const pollInterval = setInterval(poll, 3000);
 
 $(window).resize(() => board.resize());
 </script>
