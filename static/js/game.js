@@ -15,15 +15,15 @@ $(document).ready(function () {
 
     var board = Chessboard('board', config);
 
-    // --- Drag Start: Only allow human's pieces (White by default) ---
+    // --- Drag Start: Only allow human's pieces (Black) ---
     function onDragStart(source, piece, position, orientation) {
         if (game.game_over()) return false;
 
-        // Don't allow moves when it's AI's turn
-        if (game.turn() === 'b') return false;
+        // Don't allow moves when it's AI's turn (White)
+        if (game.turn() === 'w') return false;
 
-        // Only pick up white pieces
-        if (piece.search(/^b/) !== -1) return false;
+        // Only pick up black pieces
+        if (piece.search(/^w/) !== -1) return false;
     }
 
     // --- Drop: Validate and make move, then let Stockfish reply ---
@@ -41,7 +41,7 @@ $(document).ready(function () {
         updateMoveHistory();
         highlightLastMove(source, target);
 
-        // If the game isn't over, ask Stockfish for the AI reply
+        // After human (Black) moves, let Stockfish (White) reply
         if (!game.game_over()) {
             requestStockfishMove();
         }
@@ -470,19 +470,22 @@ $(document).ready(function () {
         saveCurrentGame(true); // auto-save if name + moves exist
         game.reset();
         board.start();
-        isFlipped = false;
+        isFlipped = true;
         currentGameId = null;
         $('#gameNameInput').val('');
-        board.orientation('white');
+        board.orientation('black');
         updatePlayerLabels();
         updateStatus();
         updateWinChance(50);
         $('#moveHistory').html('<p class="placeholder">No moves yet</p>');
         $('#openingName').text('');
-        $('#analysisContent').html('<p class="placeholder">Play a move to see AI analysis</p>');
+        $('#analysisContent').html('<p class="placeholder">AI is thinking...</p>');
         $('#analysisSpinner').hide();
         $('#analysisContent').show();
         boardEl.find('.square-55d63').removeClass('highlight-move');
+
+        // Stockfish makes the first move as White
+        requestStockfishMove();
     });
 
     // --- Button: Flip Board ---
@@ -515,9 +518,14 @@ $(document).ready(function () {
         syncBoardLayout();
     });
 
-    // Initial state
+    // Initial state — flip board so human plays Black
+    isFlipped = true;
+    board.orientation('black');
     updateStatus();
     updatePlayerLabels();
     loadSavedGames();
     syncBoardLayout();
+
+    // Stockfish makes the first move as White
+    requestStockfishMove();
 });
