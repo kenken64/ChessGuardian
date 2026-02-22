@@ -115,7 +115,7 @@ def analyze():
     # Call OpenAI
     try:
         response = client.chat.completions.create(
-            model="o4-mini",
+            model="gpt-5-2025-08-07",
             messages=[
                 {"role": "developer", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_message}
