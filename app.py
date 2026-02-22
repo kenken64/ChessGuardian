@@ -161,15 +161,13 @@ def analyze():
 
     # Call OpenAI
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "developer", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message}
-            ],
+        prompt = f"{SYSTEM_PROMPT}\n\n{user_message}\n\nAnalysis:"
+        response = client.completions.create(
+            model="gpt-3.5-turbo-instruct",
+            prompt=prompt,
             max_tokens=1000,
         )
-        analysis = response.choices[0].message.content
+        analysis = response.choices[0].text.strip()
 
         app.logger.info("=== OpenAI Response ===")
         app.logger.info("Model: %s", response.model)
