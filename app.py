@@ -2,6 +2,8 @@ import os
 import json
 import re
 import uuid
+import logging
+from logging.handlers import RotatingFileHandler
 from flask import Flask, render_template, request, jsonify, session, Response
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -12,6 +14,22 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+
+# --- Logging setup ---
+log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(log_dir, exist_ok=True)
+file_handler = RotatingFileHandler(
+    os.path.join(log_dir, "chessguardian.log"),
+    maxBytes=5 * 1024 * 1024,  # 5 MB
+    backupCount=3,
+)
+file_handler.setFormatter(logging.Formatter(
+    "[%(asctime)s] %(levelname)s %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+file_handler.setLevel(logging.DEBUG)
+app.logger.addHandler(file_handler)
+app.logger.setLevel(logging.DEBUG)
 
 if os.getenv("DATABASE_URL"):
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
@@ -133,6 +151,11 @@ def analyze():
     if last_move:
         user_message += f"\nLast move played: {last_move}"
 
+    app.logger.info("=== OpenAI Request ===")
+    app.logger.info("FEN: %s", fen)
+    app.logger.info("Side to move: %s", side_to_move)
+    app.logger.info("User message:\n%s", user_message)
+
     # Call OpenAI
     try:
         response = client.chat.completions.create(
@@ -144,12 +167,24 @@ def analyze():
             max_completion_tokens=16000
         )
         analysis = response.choices[0].message.content
+
+        app.logger.info("=== OpenAI Response ===")
+        app.logger.info("Model: %s", response.model)
+        app.logger.info("Usage: prompt=%s, completion=%s, total=%s",
+                        response.usage.prompt_tokens,
+                        response.usage.completion_tokens,
+                        response.usage.total_tokens)
+        app.logger.info("Raw response:\n%s", analysis)
+
         if not analysis:
             analysis = "Analysis completed but no output was returned. Please try again."
+            app.logger.warning("OpenAI returned empty content")
     except Exception as e:
+        app.logger.error("OpenAI API error: %s", str(e), exc_info=True)
         return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
 
     analysis, win_chance = parse_win_chance(analysis)
+    app.logger.info("Parsed win chance: %d, cleaned analysis:\n%s", win_chance, analysis)
 
     return jsonify({
         "analysis": analysis,
