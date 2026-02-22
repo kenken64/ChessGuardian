@@ -1,0 +1,10 @@
+.env
+.git
+.gitignore
+.vscode/
+__pycache__/
+*.pyc
+*.db
+instance/
+venv/
+.env.example
