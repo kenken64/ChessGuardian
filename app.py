@@ -4,7 +4,7 @@ import re
 import uuid
 import logging
 from logging.handlers import RotatingFileHandler
-from flask import Flask, render_template, request, jsonify, session, Response
+from flask import Flask, render_template, request, jsonify, session, Response, send_file
 from dotenv import load_dotenv
 from openai import OpenAI
 import chess
@@ -570,6 +570,28 @@ def live_state(game_id):
     if not game:
         return jsonify({"error": "Game not found"}), 404
     return jsonify(game.to_dict())
+
+
+@app.route("/api/live/<game_id>/qr")
+def live_qr(game_id):
+    """Generate a QR code PNG for the live game URL."""
+    import qrcode
+    from io import BytesIO
+
+    game = LiveGame.query.get(game_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    url = request.host_url.rstrip('/') + f'/live/{game_id}'
+    qr = qrcode.QRCode(version=1, box_size=10, border=2)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return send_file(buf, mimetype='image/png', download_name=f'chess-{game_id}.png')
 
 
 @app.route("/live/<game_id>")
