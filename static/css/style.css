@@ -1,3 +1,8 @@
+/* ===== Prevent scroll while dragging chess pieces on mobile ===== */
+#board {
+    touch-action: none;
+}
+
 /* ===== Reset & Base ===== */
 *, *::before, *::after {
     box-sizing: border-box;
