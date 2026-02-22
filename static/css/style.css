@@ -67,6 +67,8 @@ header h1 {
 .board-and-files {
     display: flex;
     flex-direction: column;
+    flex: 1;
+    min-width: 0;
 }
 
 .file-labels {
@@ -127,11 +129,61 @@ header h1 {
     font-size: 0.95rem;
 }
 
+/* ===== Save Row ===== */
+.save-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.save-row input {
+    flex: 1;
+    padding: 10px 12px;
+    background-color: #1e1c1a;
+    border: 1px solid #3a3733;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    font-family: inherit;
+    min-height: 44px;
+    outline: none;
+}
+
+.save-row input:focus {
+    border-color: #779952;
+}
+
+.save-row input::placeholder {
+    color: #666;
+}
+
+.save-row button {
+    padding: 10px 20px;
+    background-color: #779952;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 44px;
+    white-space: nowrap;
+    transition: background-color 0.15s;
+}
+
+.save-row button:hover {
+    background-color: #6b8d4a;
+}
+
+.save-row button:active {
+    background-color: #5f7d42;
+}
+
 /* ===== Controls ===== */
 .controls {
     display: flex;
     gap: 8px;
-    margin-top: 12px;
+    margin-top: 8px;
 }
 
 .controls button {
@@ -519,13 +571,23 @@ header h1 {
         max-width: 100%;
     }
 
+    .save-row input {
+        font-size: 0.8rem;
+        padding: 8px 10px;
+    }
+
+    .save-row button {
+        padding: 8px 14px;
+        font-size: 0.8rem;
+    }
+
     .controls {
         flex-wrap: wrap;
         gap: 6px;
     }
 
     .controls button {
-        flex: 1 1 calc(50% - 4px);
+        flex: 1 1 calc(33% - 4px);
         padding: 10px 8px;
         font-size: 0.8rem;
     }

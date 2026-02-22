@@ -193,6 +193,7 @@ $(document).ready(function () {
 
     // --- Cached games list from server ---
     var savedGamesList = [];
+    var currentGameId = null;
 
     // --- Load saved games from server ---
     function loadSavedGames() {
@@ -218,7 +219,7 @@ $(document).ready(function () {
             html += '<div class="saved-game-entry" data-id="' + g.id + '">';
             html += '  <div class="saved-game-header">';
             html += '    <div class="saved-game-info">';
-            html += '      <div class="saved-game-title">Game #' + (i + 1) + '</div>';
+            html += '      <div class="saved-game-title">' + escapeHtml(g.name || 'Game #' + (i + 1)) + '</div>';
             html += '      <div class="saved-game-meta">' + escapeHtml(g.date) + ' &middot; ' + g.moveCount + ' move' + (g.moveCount !== 1 ? 's' : '') + '</div>';
             html += '      <div class="saved-game-preview">' + escapeHtml(preview) + '</div>';
             html += '    </div>';
@@ -248,24 +249,40 @@ $(document).ready(function () {
     }
 
     // --- Save current game to server ---
-    function saveCurrentGame() {
+    function saveCurrentGame(silent) {
         var history = game.history();
         if (history.length === 0) return;
 
+        var name = $('#gameNameInput').val().trim();
+        if (!name) {
+            if (silent) return; // auto-save on New Game: skip if no name
+            $('#gameNameInput').focus();
+            return;
+        }
+
         var now = new Date();
         var dateStr = now.toLocaleDateString() + ' ' + now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+
+        var payload = {
+            name: name,
+            date: dateStr,
+            moves: buildMoveHistoryString(),
+            history: history,
+            moveCount: history.length
+        };
+
+        // If a loaded game is active, overwrite it
+        if (currentGameId) {
+            payload.id = currentGameId;
+        }
 
         $.ajax({
             url: '/api/games/save',
             method: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({
-                date: dateStr,
-                moves: buildMoveHistoryString(),
-                history: history,
-                moveCount: history.length
-            }),
-            success: function () {
+            data: JSON.stringify(payload),
+            success: function (data) {
+                currentGameId = data.id;
                 loadSavedGames();
             }
         });
@@ -297,6 +314,9 @@ $(document).ready(function () {
         for (var i = 0; i < g.history.length; i++) {
             game.move(g.history[i]);
         }
+
+        currentGameId = g.id;
+        $('#gameNameInput').val(g.name || '');
 
         board.position(game.fen());
         updateStatus();
@@ -340,10 +360,12 @@ $(document).ready(function () {
 
     // --- Button: New Game ---
     $('#newGameBtn').on('click', function () {
-        saveCurrentGame(); // auto-save if moves exist (no-op if empty)
+        saveCurrentGame(true); // auto-save if name + moves exist
         game.reset();
         board.start();
         isFlipped = false;
+        currentGameId = null;
+        $('#gameNameInput').val('');
         board.orientation('white');
         updatePlayerLabels();
         updateStatus();

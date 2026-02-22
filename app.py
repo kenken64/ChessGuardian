@@ -14,6 +14,10 @@ app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
 
 if os.getenv("DATABASE_URL"):
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL")
+elif os.getenv("SQLITE_PATH"):
+    db_path = os.getenv("SQLITE_PATH")
+    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.abspath(db_path)
 elif os.getenv("RAILWAY_ENVIRONMENT"):
     os.makedirs("/data", exist_ok=True)
     app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:////data/chessguardian.db"
@@ -25,6 +29,13 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 with app.app_context():
     db.create_all()
+    # Migrate: add name column if missing from older DB
+    with db.engine.connect() as conn:
+        try:
+            conn.execute(db.text("ALTER TABLE game ADD COLUMN name VARCHAR(100) DEFAULT ''"))
+            conn.commit()
+        except Exception:
+            pass
 
 
 @app.before_request
@@ -134,12 +145,35 @@ def save_game():
     if not history:
         return jsonify({"error": "No moves to save"}), 400
 
+    name = data.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "Game name is required"}), 400
+
+    now = data.get("date", "")
+    moves = data.get("moves", "")
+    move_count = data.get("moveCount", len(history))
+    history_json = json.dumps(history)
+
+    # Overwrite if id provided and belongs to this session
+    game_id = data.get("id")
+    if game_id:
+        game = Game.query.filter_by(id=game_id, session_id=session["session_id"]).first()
+        if game:
+            game.name = name
+            game.date = now
+            game.moves = moves
+            game.history = history_json
+            game.move_count = move_count
+            db.session.commit()
+            return jsonify(game.to_dict())
+
     game = Game(
         session_id=session["session_id"],
-        date=data.get("date", ""),
-        moves=data.get("moves", ""),
-        history=json.dumps(history),
-        move_count=data.get("moveCount", len(history)),
+        name=name,
+        date=now,
+        moves=moves,
+        history=history_json,
+        move_count=move_count,
     )
     db.session.add(game)
     db.session.commit()
