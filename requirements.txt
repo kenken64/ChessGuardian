@@ -6,3 +6,5 @@ python-dotenv
 gunicorn
 stockfish
 qrcode[pil]
+python-telegram-bot>=20,<21
+cairosvg

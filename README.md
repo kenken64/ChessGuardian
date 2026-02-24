@@ -9,6 +9,7 @@ AI-powered chess analysis app. Play moves on an interactive board and get positi
 - **Game persistence** — save, load, and delete games stored in SQLite, scoped per browser session
 - **Mobile responsive** — fluid board layout that scales from desktop down to small phones
 - **Dockerized** — production-ready with gunicorn, deployable to Railway
+- **Telegram bot mode** — play against Stockfish via Telegram with board image updates
 
 ## Quick Start
 
@@ -46,6 +47,23 @@ docker run -p 8080:8080 \
 
 Open http://localhost:8080
 
+### Telegram Bot (Standalone)
+
+```bash
+cp .env.example .env
+# Add OPENAI_API_KEY and TELEGRAM_BOT_TOKEN
+
+python telegram_bot.py
+```
+
+Telegram commands:
+- `/start` or `/newgame` — start a new game, Stockfish (White) plays first
+- `/move <move>` — play SAN (like `Nf6`) or UCI (like `e7e5`)
+- `/board` — render current board as image
+- `/analyze` — get AI analysis for current position
+- `/resign` — resign current game
+- `/help` — show command help
+
 ## Deploy to Railway
 
 1. Fork or push this repo to GitHub
@@ -62,13 +80,28 @@ Open http://localhost:8080
 |---|---|---|
 | `OPENAI_API_KEY` | Yes | OpenAI API key for chess analysis |
 | `SECRET_KEY` | Yes (production) | Flask session secret key |
+| `TELEGRAM_BOT_TOKEN` | For bot mode | Telegram bot token from BotFather |
+| `BOT_MODE` | No | If set (any non-empty value), Docker runs `telegram_bot.py` instead of gunicorn |
 | `DATABASE_URL` | No | SQLAlchemy database URI (defaults to SQLite) |
+
+### Docker Bot Mode
+
+Run the Telegram bot in the same image by setting `BOT_MODE`:
+
+```bash
+docker run --rm \
+  -e BOT_MODE=telegram \
+  -e OPENAI_API_KEY=sk-your-key \
+  -e TELEGRAM_BOT_TOKEN=123456:ABCDEF \
+  chessguardian
+```
 
 ## Project Structure
 
 ```
 ChessGuardian/
 ├── app.py              # Flask app, API endpoints
+├── telegram_bot.py     # Standalone Telegram bot (async python-telegram-bot)
 ├── models.py           # SQLAlchemy Game model
 ├── requirements.txt    # Python dependencies
 ├── Dockerfile          # Production Docker image

@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends stockfish && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends stockfish libcairo2 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -13,4 +13,6 @@ RUN mkdir -p /data
 
 EXPOSE 8080
 
-CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --timeout 120 app:app
+ENV BOT_MODE=""
+
+CMD sh -c 'if [ -n "$BOT_MODE" ]; then python telegram_bot.py; else gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --timeout 120 app:app; fi'
