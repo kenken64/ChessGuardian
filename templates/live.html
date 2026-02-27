@@ -21,6 +21,9 @@
         .move-list { max-height: 200px; overflow-y: auto; background: #1a1a2e; border-radius: 8px; padding: 0.75rem; margin-top: 0.75rem; font-family: monospace; font-size: 0.85rem; color: #e0e0e0; }
         .move-list .move-pair { margin-bottom: 2px; }
         .move-list .move-num { color: #888; margin-right: 0.5em; }
+        .player-label { display: flex; align-items: center; gap: 0.4em; padding: 0.4rem 0.6rem; border-radius: 6px; font-size: 0.9rem; font-weight: 500; background: #1a1a2e; color: #e0e0e0; }
+        .player-label.active-turn { background: #2e7d32; color: #fff; }
+        .player-labels { display: none; margin: 0.5rem 0; }
     </style>
 </head>
 <body>
@@ -35,7 +38,15 @@
     <div class="win-gauge-label"><span>Black</span><span id="winLabel">50%</span><span>White</span></div>
     <div class="win-gauge"><div id="winFill" class="win-gauge-fill" style="width:50%"></div></div>
 
+    <div id="playerLabels" class="player-labels">
+        <div id="topPlayer" class="player-label"></div>
+    </div>
+
     <div id="board" class="live-board" style="width:100%"></div>
+
+    <div id="playerLabelsBottom" class="player-labels">
+        <div id="bottomPlayer" class="player-label"></div>
+    </div>
 
     <div id="moveList" class="move-list"></div>
 </div>
@@ -44,8 +55,11 @@
 <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 <script>
 const GAME_ID = "{{ game_id }}";
+const urlParams = new URLSearchParams(window.location.search);
+const orientation = urlParams.get('orientation') || 'white';
+
 let board = Chessboard('board', {
-    orientation: 'black',
+    orientation: orientation,
     draggable: false,
     pieceTheme: 'https://raw.githubusercontent.com/oakmac/chessboardjs/master/website/img/chesspieces/wikipedia/{piece}.png'
 });
@@ -65,6 +79,38 @@ function renderMoves(history) {
     el.scrollTop = el.scrollHeight;
 }
 
+function renderPlayerLabels(data) {
+    if (data.mode !== 'pvp') {
+        document.getElementById('playerLabels').style.display = 'none';
+        document.getElementById('playerLabelsBottom').style.display = 'none';
+        return;
+    }
+
+    document.getElementById('playerLabels').style.display = 'block';
+    document.getElementById('playerLabelsBottom').style.display = 'block';
+
+    const whiteTurn = data.turn === 'white' && !data.gameOver;
+    const blackTurn = data.turn === 'black' && !data.gameOver;
+
+    const whiteLabel = `<span>&#9898; ${data.whitePlayer || 'White'}</span>`;
+    const blackLabel = `<span>&#9899; ${data.blackPlayer || 'Black'}</span>`;
+
+    const topEl = document.getElementById('topPlayer');
+    const bottomEl = document.getElementById('bottomPlayer');
+
+    if (orientation === 'white') {
+        topEl.innerHTML = blackLabel;
+        topEl.className = 'player-label' + (blackTurn ? ' active-turn' : '');
+        bottomEl.innerHTML = whiteLabel;
+        bottomEl.className = 'player-label' + (whiteTurn ? ' active-turn' : '');
+    } else {
+        topEl.innerHTML = whiteLabel;
+        topEl.className = 'player-label' + (whiteTurn ? ' active-turn' : '');
+        bottomEl.innerHTML = blackLabel;
+        bottomEl.className = 'player-label' + (blackTurn ? ' active-turn' : '');
+    }
+}
+
 function poll() {
     fetch(`/api/live/${GAME_ID}`)
         .then(r => r.json())
@@ -77,6 +123,7 @@ function poll() {
 
             board.position(data.fen);
             renderMoves(data.history);
+            renderPlayerLabels(data);
 
             const bar = document.getElementById('statusBar');
             if (data.gameOver) {
@@ -93,8 +140,10 @@ function poll() {
                 bar.textContent = msg;
                 bar.className = 'live-status over';
                 clearInterval(pollInterval);
+            } else if (data.mode === 'pvp') {
+                bar.textContent = data.turn === 'white' ? "White's turn" : "Black's turn";
+                bar.className = 'live-status active';
             } else {
-                // If history length is odd, it's Black's turn
                 const blackTurn = data.history.length % 2 === 1;
                 bar.textContent = blackTurn ? "Waiting for Black's move..." : "AI thinking...";
                 bar.className = 'live-status active';

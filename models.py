@@ -10,19 +10,29 @@ class LiveGame(db.Model):
     history = db.Column(db.Text, nullable=False, default='[]')
     status = db.Column(db.String(20), nullable=False, default='active')
     result = db.Column(db.String(10), nullable=True)
+    mode = db.Column(db.String(10), nullable=False, default='ai')
+    white_player = db.Column(db.String(20), nullable=True)
+    black_player = db.Column(db.String(20), nullable=True)
     created_at = db.Column(db.DateTime, default=db.func.now())
     updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
 
     def to_dict(self):
         history = json.loads(self.history)
-        return {
+        turn = "white" if len(history) % 2 == 0 else "black"
+        d = {
             "id": self.id,
             "fen": self.fen,
             "history": history,
             "status": self.status,
             "result": self.result,
             "gameOver": self.status != 'active',
+            "mode": self.mode,
+            "turn": turn,
         }
+        if self.mode == 'pvp':
+            d["whitePlayer"] = self.white_player
+            d["blackPlayer"] = self.black_player
+        return d
 
 
 class Game(db.Model):

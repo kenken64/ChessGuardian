@@ -61,13 +61,23 @@ def get_stockfish():
 
 with app.app_context():
     db.create_all()
-    # Migrate: add name column if missing from older DB
+    # Migrate: add columns if missing from older DB
     with db.engine.connect() as conn:
         try:
             conn.execute(db.text("ALTER TABLE game ADD COLUMN name VARCHAR(100) DEFAULT ''"))
             conn.commit()
         except Exception:
             pass
+        for col, col_def in [
+            ("mode", "VARCHAR(10) DEFAULT 'ai'"),
+            ("white_player", "VARCHAR(20)"),
+            ("black_player", "VARCHAR(20)"),
+        ]:
+            try:
+                conn.execute(db.text(f"ALTER TABLE live_game ADD COLUMN {col} {col_def}"))
+                conn.commit()
+            except Exception:
+                pass
         try:
             conn.execute(db.text("SELECT 1 FROM live_game LIMIT 1"))
         except Exception:
@@ -439,9 +449,30 @@ def _analyze_position(board, move_history):
 @app.route("/api/live/start", methods=["POST"])
 def live_start():
     game_id = secrets.token_urlsafe(6)[:8]
-    board = chess.Board()
+    data = request.get_json() or {}
+    mode = data.get("mode", "ai")
 
-    # Stockfish plays White's first move
+    if mode == "pvp":
+        white_player = data.get("white_player", "").strip()
+        black_player = data.get("black_player", "").strip()
+        if not white_player or not black_player:
+            return jsonify({"error": "white_player and black_player are required for PvP mode"}), 400
+        if white_player == black_player:
+            return jsonify({"error": "white_player and black_player must be different"}), 400
+
+        board = chess.Board()
+        game = LiveGame(
+            id=game_id, fen=board.fen(), history=json.dumps([]),
+            mode='pvp', white_player=white_player, black_player=black_player,
+        )
+        db.session.add(game)
+        db.session.commit()
+
+        app.logger.info("PvP game %s started: %s (W) vs %s (B)", game_id, white_player, black_player)
+        return jsonify({"id": game_id, "fen": board.fen(), "history": [], "turn": "white", "mode": "pvp"}), 201
+
+    # AI mode (default)
+    board = chess.Board()
     uci, san = _stockfish_move(board)
     if not uci:
         return jsonify({"error": "Stockfish failed"}), 500
@@ -454,7 +485,6 @@ def live_start():
     db.session.commit()
 
     app.logger.info("Live game %s started. Stockfish opened with %s", game_id, san)
-
     return jsonify({"id": game_id, "fen": board.fen(), "lastMove": san, "history": history}), 201
 
 
@@ -470,9 +500,20 @@ def live_move(game_id):
     if not data or not data.get("move"):
         return jsonify({"error": "move is required"}), 400
 
-    move_str = data["move"].strip()
     board = chess.Board(game.fen)
     history = json.loads(game.history)
+
+    # PvP turn enforcement
+    if game.mode == 'pvp':
+        player = data.get("player", "").strip()
+        if not player:
+            return jsonify({"error": "player is required for PvP games"}), 400
+        expected_turn = "white" if len(history) % 2 == 0 else "black"
+        expected_player = game.white_player if expected_turn == "white" else game.black_player
+        if player != expected_player:
+            return jsonify({"error": f"It is {expected_turn}'s turn", "turn": expected_turn}), 403
+
+    move_str = data["move"].strip()
 
     # Try SAN first, then UCI
     human_move = None
@@ -494,7 +535,7 @@ def live_move(game_id):
     board.push(human_move)
     history.append(human_san)
 
-    # Check game over after human move
+    # Check game over after move
     status, result = _check_game_over(board)
     if status:
         game.fen = board.fen()
@@ -502,13 +543,28 @@ def live_move(game_id):
         game.status = status
         game.result = result
         db.session.commit()
-        return jsonify({
+        resp = {
             "fen": board.fen(), "humanMove": human_san, "stockfishMove": None,
             "analysis": {"bestMove": "", "explanation": f"Game over: {status}", "evaluation": result, "winChance": 50},
             "history": history, "gameOver": True, "status": status,
+        }
+        if game.mode == 'pvp':
+            resp["turn"] = None
+        return jsonify(resp)
+
+    # PvP: no Stockfish reply, no analysis
+    if game.mode == 'pvp':
+        game.fen = board.fen()
+        game.history = json.dumps(history)
+        db.session.commit()
+        turn = "white" if len(history) % 2 == 0 else "black"
+        app.logger.info("PvP game %s: %s played %s | turn=%s", game_id, data.get("player"), human_san, turn)
+        return jsonify({
+            "fen": board.fen(), "humanMove": human_san,
+            "history": history, "gameOver": False, "status": "active", "turn": turn,
         })
 
-    # Stockfish replies as White
+    # AI mode: Stockfish replies as White
     uci, sf_san = _stockfish_move(board)
     if not uci:
         return jsonify({"error": "Stockfish failed"}), 500
@@ -549,7 +605,25 @@ def resign_game(game_id):
     if game.status != 'active':
         return jsonify({"error": "Game is already over"}), 400
 
-    # Black (human) resigns, White wins
+    if game.mode == 'pvp':
+        data = request.get_json() or {}
+        player = data.get("player", "").strip()
+        if not player:
+            return jsonify({"error": "player is required for PvP games"}), 400
+        if player == game.white_player:
+            game.result = '0-1'
+            msg = "White resigned. Black wins!"
+        elif player == game.black_player:
+            game.result = '1-0'
+            msg = "Black resigned. White wins!"
+        else:
+            return jsonify({"error": "Player not in this game"}), 403
+        game.status = 'resigned'
+        db.session.commit()
+        app.logger.info("PvP game %s: %s resigned. Result: %s", game_id, player, game.result)
+        return jsonify({"id": game.id, "status": "resigned", "result": game.result, "gameOver": True, "message": msg})
+
+    # AI mode: Black (human) resigns, White wins
     game.status = 'resigned'
     game.result = '1-0'
     db.session.commit()
@@ -562,6 +636,27 @@ def resign_game(game_id):
         "gameOver": True,
         "message": "Black resigned. White wins!"
     })
+
+
+@app.route("/api/live/<game_id>/auth", methods=["GET"])
+def live_auth(game_id):
+    game = LiveGame.query.get(game_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    player = request.args.get("player", "").strip()
+    if not player:
+        return jsonify({"error": "player query param is required"}), 400
+
+    history = json.loads(game.history)
+    turn = "white" if len(history) % 2 == 0 else "black"
+
+    if player == game.white_player:
+        return jsonify({"authorized": True, "color": "white", "turn": turn == "white"})
+    elif player == game.black_player:
+        return jsonify({"authorized": True, "color": "black", "turn": turn == "black"})
+    else:
+        return jsonify({"authorized": False})
 
 
 @app.route("/api/live/<game_id>", methods=["GET"])
