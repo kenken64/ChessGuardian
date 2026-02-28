@@ -16,7 +16,7 @@
         .live-status.over { background: #fff3e0; color: #e65100; }
         .live-board { margin: 0 auto; }
         .win-gauge { height: 20px; background: #333; border-radius: 10px; overflow: hidden; margin: 0.75rem 0; }
-        .win-gauge-fill { height: 100%; background: linear-gradient(90deg, #fff 0%, #fff 100%); transition: width 0.5s; }
+        .win-gauge-fill { height: 100%; background: #fff; transition: width 0.5s ease; }
         .win-gauge-label { display: flex; justify-content: space-between; font-size: 0.75rem; color: #888; }
         .move-list { max-height: 200px; overflow-y: auto; background: #1a1a2e; border-radius: 8px; padding: 0.75rem; margin-top: 0.75rem; font-family: monospace; font-size: 0.85rem; color: #e0e0e0; }
         .move-list .move-pair { margin-bottom: 2px; }
@@ -125,6 +125,12 @@ function poll() {
             renderMoves(data.history);
             renderPlayerLabels(data);
 
+            // Update win chance gauge
+            const wc = data.winChance != null ? data.winChance : 50;
+            document.getElementById('winFill').style.width = wc + '%';
+            const wcLabel = wc > 50 ? `White ${wc}%` : wc < 50 ? `Black ${100 - wc}%` : '50/50';
+            document.getElementById('winLabel').textContent = wcLabel;
+
             const bar = document.getElementById('statusBar');
             if (data.gameOver) {
                 let msg = 'Game Over';
@@ -140,12 +146,14 @@ function poll() {
                 bar.textContent = msg;
                 bar.className = 'live-status over';
                 clearInterval(pollInterval);
-            } else if (data.mode === 'pvp') {
-                bar.textContent = data.turn === 'white' ? "White's turn" : "Black's turn";
-                bar.className = 'live-status active';
             } else {
-                const blackTurn = data.history.length % 2 === 1;
-                bar.textContent = blackTurn ? "Waiting for Black's move..." : "AI thinking...";
+                // Use turn from server (derived from FEN) for all modes
+                const turnLabel = data.turn === 'white' ? "White's turn" : "Black's turn";
+                if (data.mode === 'pvp') {
+                    bar.textContent = turnLabel;
+                } else {
+                    bar.textContent = data.turn === 'white' ? "AI thinking..." : "Waiting for Black's move...";
+                }
                 bar.className = 'live-status active';
             }
 
